@@ -1,5 +1,8 @@
 # Attention Windows
 
+### See it live 
+https://mzelbash.github.io/attention-visualizer/
+
 An interactive, single-file web app that shows how four attention mechanisms decide which tokens a query is allowed to look at. It was built for **SEAS 8525: Computer Vision and Generative AI** at George Washington University.
 
 The app explains attention visually instead of with long text. Students click a token or an image patch and immediately see which keys and values it attends to, how strongly, and how much computation each mechanism needs.
