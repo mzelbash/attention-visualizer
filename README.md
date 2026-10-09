@@ -37,7 +37,7 @@ No installation or build step is needed.
 To publish it online, enable **GitHub Pages** for the repository and open the page at
 `https://<your-username>.github.io/<repo-name>/attention_windows.html`.
 
-## How to use it in class
+## How to use 
 
 1. Pick a mechanism with the buttons at the top. Each button shows a thumbnail of its matrix pattern.
 2. Click any token, patch or matrix row to make it the query.
