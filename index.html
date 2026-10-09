@@ -1,0 +1,764 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Attention Windows</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: one control strip, then the input (tokens or image) beside the full attention matrix, which is the hero. */
+:root {
+  --bg: #0B1726; --surface: #10233A; --surface-2: #163050; --line: #23405F;
+  --fg: #E6EEF7; --muted: #8FA6BD;
+  --accent: #4AA3F0;   /* attended weight */
+  --query: #F2A93B;    /* the query token */
+  --mask: #D2645A;     /* computed then masked */
+  --win: #2BB38C;      /* fixed window */
+  --quad: #FF7A45;     /* quadrangle */
+  --cell: #172B44;     /* never computed */
+  --shade: #06101C;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #EEF2F7; --surface: #FFFFFF; --surface-2: #DCE5F0; --line: #A9B9CC;
+    --fg: #0F2238; --muted: #4E6480; --accent: #1565C0; --query: #C97A00;
+    --mask: #C0392B; --win: #0E7C5E; --quad: #D9531E; --cell: #B9C6D6; --shade: #0B1726;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #EEF2F7; --surface: #FFFFFF; --surface-2: #DCE5F0; --line: #A9B9CC;
+  --fg: #0F2238; --muted: #4E6480; --accent: #1565C0; --query: #C97A00;
+  --mask: #C0392B; --win: #0E7C5E; --quad: #D9531E; --cell: #B9C6D6; --shade: #0B1726;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 20px 32px; display: grid; gap: 14px; }
+
+header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px 16px; }
+h1 { font-family: var(--font-display); font-size: 28px; margin: 0; letter-spacing: 0.01em; text-wrap: balance; }
+.course { font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+
+.controls { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+.panels { display: flex; gap: 6px; flex-wrap: wrap; }
+.pbtn {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg);
+  font: 500 14px var(--font-body); cursor: pointer;
+}
+.pbtn svg { width: 26px; height: 26px; border-radius: 4px; flex-shrink: 0; }
+.pbtn:hover:not(:disabled) { border-color: var(--accent); }
+.pbtn[aria-pressed="true"] { border-color: var(--accent); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--accent); }
+.pbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pbtn kbd { font: 11px var(--font-mono); color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { padding: 8px 16px; border: 0; background: var(--surface); color: var(--muted); font: 500 14px var(--font-body); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #FFFFFF; font-weight: 600; }
+.seg.sm button { padding: 5px 11px; font-size: 12px; }
+.head-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+button:focus-visible, input:focus-visible, select:focus-visible, label:focus-within { outline: 2px solid var(--query); outline-offset: 2px; }
+
+.tagline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tagline h2 { font-family: var(--font-display); font-size: 22px; margin: 0; }
+.tagline .say { font-size: 17px; color: var(--muted); }
+.info {
+  width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
+  color: var(--muted); font: 600 13px var(--font-body); cursor: pointer;
+}
+.info[aria-expanded="true"] { color: var(--fg); border-color: var(--accent); }
+.details { margin: 0; max-width: 72ch; font-size: 14px; color: var(--muted); }
+
+.pipe { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; font-size: 14px; padding-block: 4px; border-block: 1px solid var(--line); }
+.pipe .step { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.pipe .step-lab { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.pipe .qv { color: var(--query); font-weight: 600; }
+.pipe .qv small { font-weight: 400; color: var(--muted); }
+.pipe .filt { font-style: italic; color: var(--fg); }
+.arrow { color: var(--muted); }
+.formula math { font-size: 21px; color: var(--fg); font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", math, serif; }
+.cost { margin-left: auto; font-family: var(--font-mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cost b { color: var(--fg); font-weight: 500; }
+
+.main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 880px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; display: grid; gap: 10px; }
+.card-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card-h h3 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.sub { font-size: 12px; color: var(--muted); }
+
+.tool { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--muted); }
+.tbtn, .tool select {
+  padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--fg); font: 13px var(--font-body); cursor: pointer;
+}
+.tbtn[aria-pressed="true"] { border-color: var(--win); color: var(--win); }
+input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+
+.imgwrap { position: relative; width: 100%; }
+#cv { display: block; width: 100%; height: auto; border-radius: 8px; }
+#ov { position: absolute; inset: 0; width: 100%; height: 100%; }
+#ov .patch { cursor: pointer; }
+
+.sliders { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: center; font-size: 13px; color: var(--muted); }
+.sliders input { accent-color: var(--quad); width: 100%; }
+.sliders output { font-family: var(--font-mono); color: var(--fg); min-width: 3.5em; text-align: right; }
+
+svg { display: block; }
+.tok { cursor: pointer; }
+.mx-scroll { overflow-x: auto; }
+#mx { width: 100%; max-width: 440px; margin: 0 auto; }
+#mx .row { cursor: pointer; }
+#mx rect.c { transition: fill 0.3s ease, fill-opacity 0.3s ease; }
+#mx rect.h { transition: opacity 0.3s ease; }
+#mx .qrow { transition: transform 0.25s ease; }
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.sw.grad { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 20%, transparent), var(--accent)); }
+.sw.q { border: 2px solid var(--query); }
+.sw.none { background: var(--cell); border: 1px solid var(--line); }
+
+.quiz { border-color: var(--mask); }
+.quiz p { margin: 0; font-size: 15px; }
+.quiz .reveal { justify-self: start; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--query); background: transparent; color: var(--query); font: 500 13px var(--font-body); cursor: pointer; }
+.bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.barset h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+.barset h4 code { font-family: var(--font-mono); }
+.bchart { display: flex; align-items: flex-end; gap: 10px; height: 110px; border-bottom: 1px solid var(--line); }
+.bcol { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.bar { width: 100%; border-radius: 3px 3px 0 0; background: var(--accent); }
+.bar.leak { background: var(--mask); }
+.blab { display: flex; gap: 10px; font: 11px var(--font-mono); color: var(--muted); }
+.blab span { flex: 1; text-align: center; }
+.note { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+#answer { display: grid; gap: 12px; }
+#answer[hidden] { display: none; }
+.verdict { margin: 0; font-family: var(--font-display); font-size: 24px; color: var(--mask); }
+.why { display: grid; gap: 6px; max-width: 68ch; font-size: 15px; }
+.why p { margin: 0; }
+.why ol { margin: 0; padding-left: 1.4em; display: grid; gap: 4px; }
+.why .eq { padding-block: 4px; }
+.why .eq math { font-size: 22px; color: var(--fg); font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", math, serif; }
+.flow { display: grid; gap: 6px; max-width: 640px; overflow-x: auto; }
+.fh, .fr { display: grid; grid-template-columns: 8.5em 5em 5em minmax(9em, 1fr); gap: 10px; align-items: center; }
+.fh { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.fr { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); font-size: 15px; }
+.fr .v { font-family: var(--font-mono); font-size: 17px; font-variant-numeric: tabular-nums; }
+.fr .res { font-weight: 600; display: flex; flex-direction: column; }
+.fr .res em { font-family: var(--font-body); font-style: normal; font-weight: 400; font-size: 12px; color: var(--muted); }
+.fr.bad { border-color: var(--mask); background: color-mix(in srgb, var(--mask) 10%, transparent); }
+.fr.bad .res { color: var(--mask); }
+.fr.good { border-color: var(--win); background: color-mix(in srgb, var(--win) 10%, transparent); }
+.fr.good .res { color: var(--win); }
+.try { display: grid; gap: 8px; max-width: 520px; padding: 12px; border-radius: 8px; background: var(--surface-2); }
+.try-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.try-h output { font-family: var(--font-mono); font-size: 16px; min-width: 3.5em; }
+.try input[type="range"] { width: 100%; accent-color: var(--mask); }
+.leak { margin: 0; font-size: 15px; font-weight: 600; }
+.mask-use { margin: 0; max-width: 68ch; font-size: 15px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--win); background: color-mix(in srgb, var(--win) 10%, transparent); }
+.mask-use strong { color: var(--win); }
+
+footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--muted); }
+kbd { font-family: var(--font-mono); font-size: 11px; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { #mx rect.c, #mx rect.h, #mx .qrow { transition: none; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="5" height="5" fill="var(--cell)"></rect>
+      <line x1="0" y1="0" x2="0" y2="5" stroke="var(--mask)" stroke-width="2"></line>
+    </pattern>
+    <pattern id="hatchImg" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="10" stroke="var(--mask)" stroke-width="3"></line>
+    </pattern>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header>
+    <h1>Attention Windows</h1>
+    <div class="head-right">
+      <span class="course">SEAS 8525 &middot; Computer Vision and Generative AI &middot; Dr. Elbasheer</span>
+      <div class="seg sm" role="group" aria-label="Theme">
+        <button data-theme-btn="light" aria-pressed="false">Light</button>
+        <button data-theme-btn="dark" aria-pressed="false">Dark</button>
+        <button data-theme-btn="system" aria-pressed="true">System</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="panels" id="panels"></div>
+    <div class="seg" role="group" aria-label="Input type">
+      <button id="v-sentence" aria-pressed="true">Sentence</button>
+      <button id="v-image" aria-pressed="false">Image</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="tagline">
+      <h2 id="pname"></h2>
+      <span class="say" id="psay"></span>
+      <button class="info" id="infoBtn" aria-expanded="false" aria-controls="pdetails" title="More detail">?</button>
+    </div>
+    <p class="details" id="pdetails" hidden></p>
+  </div>
+
+  <div class="pipe" aria-label="Attention pipeline">
+    <span class="step"><span class="qv">Q</span><small class="step-lab">full, never filtered</small></span>
+    <span class="step"><span class="step-lab">K, V from</span><span class="filt" id="filter"></span></span>
+    <span class="arrow" aria-hidden="true">&rarr;</span>
+    <span class="formula">
+      <math display="inline">
+        <mrow>
+          <mi mathvariant="normal">softmax</mi>
+          <mrow>
+            <mo>(</mo>
+            <mfrac>
+              <mrow><mi>Q</mi><msup><mi>K</mi><mo>&#x22A4;</mo></msup></mrow>
+              <msqrt><msub><mi>d</mi><mi>k</mi></msub></msqrt>
+            </mfrac>
+            <mo>)</mo>
+          </mrow>
+          <mi>V</mi>
+        </mrow>
+      </math>
+    </span>
+    <span class="cost" id="cost"></span>
+  </div>
+
+  <div class="main">
+    <section class="card" aria-label="Input">
+      <div class="card-h">
+        <h3 id="inTitle">Sentence</h3>
+        <div class="tool">
+          <button class="tbtn" id="shiftBtn" aria-pressed="false" hidden>Shifted windows</button>
+          <span id="imgTools" class="tool" hidden>
+            <label class="tbtn" for="upload">Upload image</label>
+            <input type="file" id="upload" accept="image/*">
+            <label for="grid">Grid</label>
+            <select id="grid">
+              <option value="3x3">3 &times; 3</option>
+              <option value="4x3" selected>4 &times; 3</option>
+              <option value="4x4">4 &times; 4</option>
+              <option value="6x4">6 &times; 4</option>
+            </select>
+          </span>
+        </div>
+      </div>
+
+      <div id="sentBox">
+        <svg id="sent" viewBox="0 0 760 240" width="100%" role="img" aria-label="Tokens with attention arcs from the query"></svg>
+      </div>
+
+      <div id="imgBox" hidden>
+        <div class="imgwrap">
+          <canvas id="cv" width="600" height="400"></canvas>
+          <svg id="ov" viewBox="0 0 600 400" preserveAspectRatio="none" role="img" aria-label="Image patches tinted by attention weight"></svg>
+        </div>
+      </div>
+
+      <div class="sliders" id="sliders" hidden>
+        <label for="rot">Rotation</label><input type="range" id="rot" min="-45" max="45" value="0"><output id="rotV">0&deg;</output>
+        <label for="skew">Skew</label><input type="range" id="skew" min="-30" max="30" value="0"><output id="skewV">0&deg;</output>
+        <label for="scale">Scale</label><input type="range" id="scale" min="70" max="180" step="5" value="100"><output id="scaleV">1.0&times;</output>
+      </div>
+      <div class="sub" id="inHint">Click a token to make it the query.</div>
+    </section>
+
+    <section class="card" aria-label="Attention matrix">
+      <div class="card-h">
+        <h3>Attention matrix</h3>
+        <span class="sub">rows = queries &middot; columns = keys</span>
+      </div>
+      <div class="mx-scroll"><svg id="mx" role="img" aria-label="Full attention weight matrix"></svg></div>
+      <div class="legend">
+        <span><i class="sw q"></i>query row</span>
+        <span><i class="sw grad"></i>weight</span>
+        <span><svg width="14" height="14"><rect width="14" height="14" rx="3" fill="url(#hatch)"></rect></svg>computed, then masked</span>
+        <span><i class="sw none"></i>never computed</span>
+      </div>
+      <div class="sub" style="text-align:center">Illustrative weights. Each row sums to 1.</div>
+    </section>
+  </div>
+
+  <section class="card quiz" id="quiz" hidden aria-label="Masking question">
+    <p><strong>Question:</strong> To mask the future, can we just set those scores to 0?</p>
+    <button class="reveal" id="reveal" aria-expanded="false">Reveal answer</button>
+    <div id="answer" hidden>
+      <p class="verdict">The answer is No.</p>
+      <div class="why">
+        <p>Attention turns scores into weights with softmax:</p>
+        <p class="eq">
+          <math display="block">
+            <mrow>
+              <msub><mi>w</mi><mi>i</mi></msub><mo>=</mo>
+              <mfrac>
+                <msup><mi>e</mi><msub><mi>s</mi><mi>i</mi></msub></msup>
+                <mrow><munder><mo>&#x2211;</mo><mi>j</mi></munder><msup><mi>e</mi><msub><mi>s</mi><mi>j</mi></msub></msup></mrow>
+              </mfrac>
+            </mrow>
+          </math>
+        </p>
+        <ol>
+          <li>Every score is passed through <i>e</i><sup><i>x</i></sup> before it becomes a weight.</li>
+          <li>A score of 0 becomes <i>e</i><sup>0</sup> = <strong>1</strong>, not 0. So the future token still gets a share of the attention.</li>
+          <li>To give it exactly 0 weight we need <i>e</i><sup><i>x</i></sup> = 0, and that only happens when <i>x</i> = <strong>&minus;&infin;</strong>.</li>
+        </ol>
+      </div>
+      <p class="mask-use"><strong>What the mask uses:</strong> every future score is set to &minus;&infin; before softmax. In code this is a large negative number such as &minus;1e9, which keeps the math numerically safe and still gives a weight of 0.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>SEAS 8525 &middot; Dr. Mohamed Elbasheer</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag);
+    if (attrs) for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function $(id) { return document.getElementById(id); }
+
+  var WORDS = ["the", "cat", "sat", "on", "the", "mat", "and", "slept"];
+  var S = {
+    panel: 0, view: "sentence", sq: 3, iq: 5, cols: 4, rows: 3, shift: false,
+    quad: { rot: 0, skew: 0, scale: 1 }, W: 600, H: 400, img: null, details: false
+  };
+
+  var PANELS = [
+    { name: "Global", say: "Every token sees every token.", filter: "keep all tokens",
+      details: "Every token contributes a key and a value, so the score matrix is N × N. Used in BERT, the original Transformer encoder and plain ViT. Cost grows with N²." },
+    { name: "Masked (causal)", say: "Score everything, then hide the future.", filter: "score all → mask j > i",
+      details: "The full QKᵀ matrix is computed exactly as in global attention. Scores for future positions are then set to −∞ before softmax, so their weights become 0. Used in GPT-style decoders. On images it appears only in autoregressive generators such as ImageGPT, which read patches in raster order (left to right, top to bottom)." },
+    { name: "Fixed window", say: "Only look inside your own block.", filter: "own block only",
+      details: "Keys and values are gathered only from the query's block before any score is computed, so nothing outside is ever calculated. Swin Transformer alternates regular and shifted windows so information can cross block borders. Try the Shifted windows button." },
+    { name: "Quadrangle", say: "Look inside a learned, tilted window.", filter: "learned shape only",
+      details: "The network predicts a transform (rotation, skew, scale, shift) for each window from the image content, then bilinearly samples keys and values inside the warped shape. This demo approximates it by keeping patches whose centers fall inside the quadrangle. A 2D vision mechanism, so it is disabled for sentences." }
+  ];
+
+  /* ---------- geometry and allowed sets ---------- */
+  function N() { return S.view === "sentence" ? WORDS.length : S.cols * S.rows; }
+  function q() { return S.view === "sentence" ? S.sq : S.iq; }
+  function cellW() { return S.W / S.cols; }
+  function cellH() { return S.H / S.rows; }
+  function center(i) {
+    var c = i % S.cols, r = Math.floor(i / S.cols);
+    return [(c + 0.5) * cellW(), (r + 0.5) * cellH()];
+  }
+  function winId(i) {
+    var s = S.shift ? 1 : 0;
+    if (S.view === "sentence") return Math.floor((i + s) / 3);
+    var c = i % S.cols, r = Math.floor(i / S.cols);
+    return Math.floor((c + s) / 2) + "," + Math.floor((r + s) / 2);
+  }
+  function quadPoly(i) {
+    var c = center(i), hw = 1.1 * cellW() * S.quad.scale, hh = 1.1 * cellH() * S.quad.scale;
+    var rot = S.quad.rot * Math.PI / 180, sk = Math.tan(S.quad.skew * Math.PI / 180);
+    return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(function (p) {
+      var x = p[0] + p[1] * sk, y = p[1];
+      return [c[0] + x * Math.cos(rot) - y * Math.sin(rot), c[1] + x * Math.sin(rot) + y * Math.cos(rot)];
+    });
+  }
+  function inPoly(pt, poly) {
+    var inside = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      var xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+      if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function allowed(r, j) {
+    switch (S.panel) {
+      case 0: return true;
+      case 1: return j <= r;
+      case 2: return winId(r) === winId(j);
+      default: return j === r || inPoly(center(j), quadPoly(r));
+    }
+  }
+  function score(r, j) {
+    if (r === j) return 3;
+    if (S.view === "sentence") return WORDS[r] === WORDS[j] ? 2.4 : Math.max(0.2, 2 - 0.45 * Math.abs(r - j));
+    var a = center(r), b = center(j);
+    var d = Math.hypot((a[0] - b[0]) / cellW(), (a[1] - b[1]) / cellH());
+    return Math.max(0.2, 2.2 - 0.6 * d);
+  }
+  // returns array of {s: "on"|"masked"|"none", w}
+  function row(r) {
+    var n = N(), out = [], sum = 0;
+    for (var j = 0; j < n; j++) {
+      if (allowed(r, j)) { var e = Math.exp(0.8 * score(r, j)); out.push({ s: "on", w: e }); sum += e; }
+      else out.push({ s: S.panel === 1 ? "masked" : "none", w: 0 });
+    }
+    out.forEach(function (o) { if (o.s === "on") o.w /= sum; });
+    return out;
+  }
+
+  /* ---------- panel buttons with matrix thumbnails ---------- */
+  function thumb(p) {
+    var s = '<svg viewBox="0 0 26 26" aria-hidden="true"><rect width="26" height="26" fill="var(--cell)"/>';
+    for (var i = 0; i < 8; i++) for (var j = 0; j < 8; j++) {
+      var on, mk = false;
+      if (p === 0) on = true;
+      else if (p === 1) { on = j <= i; mk = !on; }
+      else if (p === 2) on = Math.floor(i / 3) === Math.floor(j / 3);
+      else on = Math.abs(i - j) <= 1 || (i + j) % 6 === 1;
+      if (on || mk) s += '<rect x="' + (1 + j * 3) + '" y="' + (1 + i * 3) + '" width="2.6" height="2.6" fill="' + (mk ? "var(--mask)" : "var(--accent)") + '" fill-opacity="' + (mk ? 0.45 : 0.9) + '"/>';
+    }
+    return s + "</svg>";
+  }
+  var pWrap = $("panels");
+  PANELS.forEach(function (p, i) {
+    var b = document.createElement("button");
+    b.className = "pbtn"; b.dataset.p = i;
+    b.innerHTML = thumb(i) + "<span>" + p.name + "</span><kbd>" + (i + 1) + "</kbd>";
+    b.addEventListener("click", function () { setPanel(i); });
+    pWrap.appendChild(b);
+  });
+
+  function setPanel(i) {
+    if (i === 3 && S.view === "sentence") return;
+    S.panel = i; render(true);
+  }
+  function setView(v) {
+    S.view = v;
+    if (v === "sentence" && S.panel === 3) S.panel = 2;
+    render(true);
+  }
+
+  /* ---------- sentence input ---------- */
+  function renderSentence() {
+    var svg = $("sent"); svg.textContent = "";
+    var n = WORDS.length, bw = 80, gap = 10, x0 = (760 - (n * bw + (n - 1) * gap)) / 2;
+    var ty = 132, th = 40, base = 232;
+    var qi = S.sq, R = row(qi);
+    function cx(i) { return x0 + i * (bw + gap) + bw / 2; }
+
+    if (S.panel === 2) {
+      var groups = {};
+      for (var i = 0; i < n; i++) { var id = winId(i); (groups[id] = groups[id] || []).push(i); }
+      Object.keys(groups).forEach(function (k) {
+        var g = groups[k], a = g[0], b = g[g.length - 1], mine = g.indexOf(qi) >= 0;
+        el("rect", { x: x0 + a * (bw + gap) - 5, y: ty - 6, width: (b - a + 1) * (bw + gap) - gap + 10, height: th + 12, rx: 9,
+          fill: "var(--win)", "fill-opacity": mine ? 0.16 : 0.04, stroke: "var(--win)", "stroke-width": mine ? 2 : 1,
+          "stroke-dasharray": "6 4", "stroke-opacity": mine ? 1 : 0.5 }, svg);
+      });
+    }
+
+    // arcs
+    R.forEach(function (o, j) {
+      if (o.s !== "on" || j === qi) return;
+      var x1 = cx(qi), x2 = cx(j), h = 26 + Math.abs(j - qi) * 13;
+      el("path", { d: "M" + x1 + " " + (ty - 2) + " Q " + ((x1 + x2) / 2) + " " + (ty - 2 - h * 2) + " " + x2 + " " + (ty - 2),
+        fill: "none", stroke: "var(--accent)", "stroke-width": 1.5 + o.w * 14, "stroke-opacity": 0.35 + o.w * 1.6, "stroke-linecap": "round" }, svg);
+    });
+
+    // tokens and weight bars
+    for (var j = 0; j < n; j++) {
+      var o = R[j], isQ = j === qi, x = x0 + j * (bw + gap);
+      var g = el("g", { class: "tok", tabindex: 0, role: "button", "aria-label": "Make " + WORDS[j] + " the query" }, svg);
+      (function (jj) {
+        g.addEventListener("click", function () { S.sq = jj; render(); });
+        g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); S.sq = jj; render(); } });
+      })(j);
+      var fill = isQ ? "var(--query)" : o.s === "masked" ? "url(#hatch)" : "var(--surface-2)";
+      el("rect", { x: x, y: ty, width: bw, height: th, rx: 8, fill: fill,
+        stroke: isQ ? "var(--query)" : "var(--line)", "stroke-width": isQ ? 2 : 1, opacity: o.s === "none" ? 0.35 : 1 }, g);
+      var t = el("text", { x: x + bw / 2, y: ty + th / 2, "text-anchor": "middle", "dominant-baseline": "central",
+        "font-size": 15, "font-weight": isQ ? 600 : 400, fill: isQ ? "var(--bg)" : "var(--fg)", opacity: o.s === "none" ? 0.45 : 1,
+        "font-family": "var(--font-body)" }, g);
+      t.textContent = WORDS[j];
+      if (isQ) { var qt = el("text", { x: x + bw / 2, y: ty - 8, "text-anchor": "middle", "font-size": 11, "font-weight": 600, fill: "var(--query)", "font-family": "var(--font-mono)" }, svg); qt.textContent = "Q"; }
+      if (o.s === "on") {
+        var bh = Math.max(2, o.w * 95);
+        el("rect", { x: x + 18, y: base - bh, width: bw - 36, height: bh, rx: 2, fill: isQ ? "var(--query)" : "var(--accent)" }, svg);
+        var v = el("text", { x: x + bw / 2, y: base - bh - 5, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)", "font-family": "var(--font-mono)" }, svg);
+        v.textContent = o.w.toFixed(2);
+      } else if (o.s === "masked") {
+        var m = el("text", { x: x + bw / 2, y: base - 5, "text-anchor": "middle", "font-size": 11, fill: "var(--mask)", "font-family": "var(--font-mono)" }, svg);
+        m.textContent = "0";
+      }
+    }
+    el("line", { x1: x0, x2: 760 - x0, y1: base + 0.5, y2: base + 0.5, stroke: "var(--line)" }, svg);
+  }
+
+  /* ---------- image input ---------- */
+  function drawScene(ctx, W, H) {
+    var sky = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+    sky.addColorStop(0, "#6FA8DC"); sky.addColorStop(1, "#CFE3F2");
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#7B9A6A";
+    ctx.beginPath(); ctx.moveTo(0, H * 0.5);
+    for (var x = 0; x <= W; x += 20) ctx.lineTo(x, H * 0.48 - Math.sin(x / 70) * 18 - Math.sin(x / 23) * 5);
+    ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.fill();
+    ctx.fillStyle = "#5E8A4C"; ctx.fillRect(0, H * 0.58, W, H);
+    // diagonal road from bottom-left to upper-right
+    ctx.fillStyle = "#4A4F57";
+    ctx.beginPath(); ctx.moveTo(W * 0.02, H); ctx.lineTo(W * 0.32, H); ctx.lineTo(W * 0.86, H * 0.52); ctx.lineTo(W * 0.78, H * 0.52); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#F2D65C"; ctx.lineWidth = 4; ctx.setLineDash([22, 18]);
+    ctx.beginPath(); ctx.moveTo(W * 0.17, H); ctx.lineTo(W * 0.82, H * 0.52); ctx.stroke(); ctx.setLineDash([]);
+    // trees
+    [[0.08, 0.66], [0.55, 0.9], [0.66, 0.74], [0.93, 0.7], [0.4, 0.62]].forEach(function (t) {
+      ctx.fillStyle = "#5B3E2B"; ctx.fillRect(W * t[0] - 4, H * t[1], 8, 26);
+      ctx.fillStyle = "#2F6B3A"; ctx.beginPath(); ctx.arc(W * t[0], H * t[1] - 6, 22, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.fillStyle = "#FFF4C2"; ctx.beginPath(); ctx.arc(W * 0.14, H * 0.16, 26, 0, Math.PI * 2); ctx.fill();
+  }
+  function paintCanvas() {
+    var cv = $("cv");
+    cv.width = S.W; cv.height = S.H;
+    var ctx = cv.getContext("2d");
+    if (S.img) ctx.drawImage(S.img, 0, 0, S.W, S.H); else drawScene(ctx, S.W, S.H);
+    $("ov").setAttribute("viewBox", "0 0 " + S.W + " " + S.H);
+  }
+  function renderImage() {
+    var ov = $("ov"); ov.textContent = "";
+    var n = N(), qi = S.iq, R = row(qi), cw = cellW(), ch = cellH();
+    for (var i = 0; i < n; i++) {
+      var c = i % S.cols, r = Math.floor(i / S.cols), o = R[i], x = c * cw, y = r * ch;
+      var g = el("g", { class: "patch" }, ov);
+      (function (ii) { g.addEventListener("click", function () { S.iq = ii; render(); }); })(i);
+      if (o.s === "on") el("rect", { x: x, y: y, width: cw, height: ch, fill: "var(--accent)", "fill-opacity": Math.min(0.75, o.w * 2.2) }, g);
+      else {
+        el("rect", { x: x, y: y, width: cw, height: ch, fill: "var(--shade)", "fill-opacity": 0.6 }, g);
+        if (o.s === "masked") el("rect", { x: x, y: y, width: cw, height: ch, fill: "url(#hatchImg)", opacity: 0.8 }, g);
+      }
+      el("rect", { x: x, y: y, width: cw, height: ch, fill: "none", stroke: "#FFFFFF", "stroke-opacity": 0.35, "stroke-width": 1 }, g);
+      var lab = el("text", { x: x + 6, y: y + 15, "font-size": 12, fill: "#FFFFFF", "fill-opacity": 0.85, "font-family": "var(--font-mono)" }, g);
+      lab.textContent = "p" + i;
+      if (o.s === "on" && cw > 60) {
+        var wv = el("text", { x: x + cw / 2, y: y + ch / 2, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 16, "font-weight": 600,
+          fill: "#FFFFFF", stroke: "#000000", "stroke-opacity": 0.35, "stroke-width": 3, "paint-order": "stroke", "font-family": "var(--font-mono)" }, g);
+        wv.textContent = o.w.toFixed(2);
+      }
+    }
+    if (S.panel === 2) {
+      var seen = {};
+      for (var k = 0; k < n; k++) {
+        var id = winId(k); if (seen[id]) continue;
+        var members = []; for (var m = 0; m < n; m++) if (winId(m) === id) members.push(m);
+        var cs = members.map(function (v) { return v % S.cols; }), rs = members.map(function (v) { return Math.floor(v / S.cols); });
+        var mine = members.indexOf(qi) >= 0; seen[id] = 1;
+        el("rect", { x: Math.min.apply(null, cs) * cw + 3, y: Math.min.apply(null, rs) * ch + 3,
+          width: (Math.max.apply(null, cs) - Math.min.apply(null, cs) + 1) * cw - 6, height: (Math.max.apply(null, rs) - Math.min.apply(null, rs) + 1) * ch - 6,
+          fill: "none", stroke: "var(--win)", "stroke-width": mine ? 4 : 2, "stroke-dasharray": "10 6", "stroke-opacity": mine ? 1 : 0.6, "pointer-events": "none" }, ov);
+      }
+    }
+    if (S.panel === 3) {
+      el("polygon", { points: quadPoly(qi).map(function (p) { return p.join(","); }).join(" "),
+        fill: "var(--quad)", "fill-opacity": 0.12, stroke: "var(--quad)", "stroke-width": 4, "pointer-events": "none" }, ov);
+    }
+    var qc = qi % S.cols, qr = Math.floor(qi / S.cols);
+    el("rect", { x: qc * cw + 2, y: qr * ch + 2, width: cw - 4, height: ch - 4, fill: "none", stroke: "var(--query)", "stroke-width": 5, "pointer-events": "none" }, ov);
+    var qt = el("text", { x: qc * cw + cw - 10, y: qr * ch + 20, "text-anchor": "end", "font-size": 15, "font-weight": 700, fill: "var(--query)",
+      stroke: "#000000", "stroke-opacity": 0.4, "stroke-width": 3, "paint-order": "stroke", "font-family": "var(--font-mono)", "pointer-events": "none" }, ov);
+    qt.textContent = "Q";
+  }
+
+  /* ---------- matrix (persistent cells so changes fade) ---------- */
+  var MX = { key: "", cells: [], hatches: [], vals: [], titles: [], rowLabels: [], qrow: null, size: 0 };
+  function label(i) { return S.view === "sentence" ? WORDS[i] : "p" + i; }
+  function buildMatrix() {
+    var n = N(), key = S.view + n;
+    if (MX.key === key) return;
+    var svg = $("mx"); svg.textContent = "";
+    var cs = n <= 8 ? 36 : Math.max(12, Math.floor(330 / n)), gp = 2, lw = S.view === "sentence" ? 40 : 30, lh = 20;
+    var showLab = cs >= 16;
+    var size = lw + n * (cs + gp);
+    svg.setAttribute("viewBox", "0 0 " + (size + 4) + " " + (lh + n * (cs + gp) + 4));
+    MX = { key: key, cells: [], hatches: [], vals: [], titles: [], rowLabels: [], qrow: null, cs: cs, gp: gp, lw: lw, lh: lh };
+    for (var c = 0; c < n; c++) {
+      if (!showLab && c % 2) continue;
+      var t = el("text", { x: lw + c * (cs + gp) + cs / 2, y: lh - 6, "text-anchor": "middle", "font-size": 10, fill: "var(--muted)", "font-family": "var(--font-mono)" }, svg);
+      t.textContent = label(c);
+    }
+    for (var r = 0; r < n; r++) {
+      var g = el("g", { class: "row" }, svg);
+      (function (rr) { g.addEventListener("click", function () { if (S.view === "sentence") S.sq = rr; else S.iq = rr; render(); }); })(r);
+      var rl = el("text", { x: lw - 6, y: lh + r * (cs + gp) + cs / 2, "text-anchor": "end", "dominant-baseline": "central", "font-size": 10, fill: "var(--muted)", "font-family": "var(--font-mono)" }, g);
+      rl.textContent = (!showLab && r % 2) ? "" : label(r);
+      MX.rowLabels.push(rl);
+      MX.cells.push([]); MX.hatches.push([]); MX.vals.push([]); MX.titles.push([]);
+      for (var c2 = 0; c2 < n; c2++) {
+        var x = lw + c2 * (cs + gp), y = lh + r * (cs + gp);
+        var cell = el("g", null, g);
+        var tt = el("title", null, cell);
+        var rc = el("rect", { class: "c", x: x, y: y, width: cs, height: cs, rx: 2 }, cell);
+        var hc = el("rect", { class: "h", x: x, y: y, width: cs, height: cs, rx: 2, fill: "url(#hatch)" }, cell);
+        hc.style.opacity = 0;
+        var vt = el("text", { x: x + cs / 2, y: y + cs / 2, "text-anchor": "middle", "dominant-baseline": "central", "font-size": 9.5, "font-family": "var(--font-mono)", "pointer-events": "none" }, cell);
+        MX.cells[r].push(rc); MX.hatches[r].push(hc); MX.vals[r].push(vt); MX.titles[r].push(tt);
+      }
+    }
+    MX.qrow = el("rect", { class: "qrow", x: lw - 3, y: lh - 3, width: n * (cs + gp) + 4, height: cs + 4, rx: 4, fill: "none", stroke: "var(--query)", "stroke-width": 2.5, "pointer-events": "none" }, svg);
+  }
+  function updateMatrix() {
+    buildMatrix();
+    var n = N(), qi = q(), cs = MX.cs;
+    for (var r = 0; r < n; r++) {
+      var R = row(r);
+      MX.rowLabels[r].setAttribute("fill", r === qi ? "var(--query)" : "var(--muted)");
+      MX.rowLabels[r].setAttribute("font-weight", r === qi ? 700 : 400);
+      for (var c = 0; c < n; c++) {
+        var o = R[c], rc = MX.cells[r][c];
+        if (o.s === "on") { rc.style.fill = "var(--accent)"; rc.style.fillOpacity = (0.28 + Math.min(0.72, o.w * 1.8)).toFixed(3); }
+        else { rc.style.fill = "var(--cell)"; rc.style.fillOpacity = 1; }
+        MX.hatches[r][c].style.opacity = o.s === "masked" ? 1 : 0;
+        var vt = MX.vals[r][c];
+        if (r === qi && cs >= 26) {
+          vt.textContent = o.s === "on" ? o.w.toFixed(2).replace(/^0/, "") : o.s === "masked" ? "0" : "";
+          vt.setAttribute("fill", o.s === "masked" ? "var(--mask)" : o.w > 0.3 ? "var(--bg)" : "var(--fg)");
+        } else vt.textContent = "";
+        MX.titles[r][c].textContent = label(r) + " → " + label(c) + ": " +
+          (o.s === "on" ? o.w.toFixed(3) : o.s === "masked" ? "computed, masked to 0" : "never computed");
+      }
+    }
+    MX.qrow.style.transform = "translateY(" + (qi * (cs + MX.gp)) + "px)";
+  }
+
+  /* ---------- cost ---------- */
+  function renderCost() {
+    var n = N(), computed = 0, masked = 0;
+    for (var r = 0; r < n; r++) row(r).forEach(function (o) { if (o.s !== "none") computed++; if (o.s === "masked") masked++; });
+    var html = "scores computed <b>" + computed + "</b> / " + (n * n);
+    if (masked) html += " &middot; masked <b>" + masked + "</b>";
+    else if (computed < n * n) html += " (" + Math.round(100 * computed / (n * n)) + "%)";
+    $("cost").innerHTML = html;
+  }
+
+  /* ---------- quiz bars ---------- */
+  function bars(id, vals) {
+    var box = $(id), mx = 0.7; box.textContent = "";
+    vals.forEach(function (v, i) {
+      var col = document.createElement("div"); col.className = "bcol";
+      var t = document.createElement("span"); t.textContent = v.toFixed(3);
+      var b = document.createElement("div"); b.className = "bar" + (i === 3 && v > 0 ? " leak" : "");
+      b.style.height = Math.max(v > 0 ? 3 : 0, (v / mx) * 85) + "px";
+      col.appendChild(t); col.appendChild(b); box.appendChild(col);
+    });
+  }
+  function softmax(a) { var e = a.map(Math.exp), s = e.reduce(function (x, y) { return x + y; }, 0); return e.map(function (v) { return v / s; }); }
+
+  $("reveal").addEventListener("click", function () {
+    var a = $("answer"); a.hidden = !a.hidden;
+    this.setAttribute("aria-expanded", String(!a.hidden));
+    this.textContent = a.hidden ? "Reveal answer" : "Hide answer";
+  });
+
+  /* ---------- main render ---------- */
+  function render(chrome) {
+    var p = PANELS[S.panel], img = S.view === "image";
+    if (chrome) {
+      document.querySelectorAll(".pbtn").forEach(function (b) {
+        var i = +b.dataset.p;
+        b.setAttribute("aria-pressed", String(i === S.panel));
+        b.disabled = i === 3 && !img;
+        b.title = b.disabled ? "Quadrangle attention is a 2D vision mechanism" : "";
+      });
+      $("v-sentence").setAttribute("aria-pressed", String(!img));
+      $("v-image").setAttribute("aria-pressed", String(img));
+      $("pname").textContent = p.name;
+      $("psay").textContent = p.say;
+      $("filter").textContent = p.filter;
+      var d = p.details;
+      if (S.panel === 1 && img) d += " Here the order is raster order: p0, p1, p2, and so on.";
+      $("pdetails").textContent = d;
+      $("pdetails").hidden = !S.details;
+      $("quiz").hidden = S.panel !== 1;
+      if (S.panel !== 1) { $("answer").hidden = true; $("reveal").textContent = "Reveal answer"; $("reveal").setAttribute("aria-expanded", "false"); }
+      $("shiftBtn").hidden = S.panel !== 2;
+      $("shiftBtn").setAttribute("aria-pressed", String(S.shift));
+      $("sliders").hidden = !(img && S.panel === 3);
+      $("imgTools").hidden = !img;
+      $("sentBox").hidden = img;
+      $("imgBox").hidden = !img;
+      $("inTitle").textContent = img ? "Image patches" : "Sentence";
+      $("inHint").textContent = img ? "Click a patch to make it the query. Brighter blue = more attention." : "Click a token to make it the query. Bars show its attention weights.";
+    }
+    if (img) renderImage(); else renderSentence();
+    updateMatrix();
+    renderCost();
+  }
+
+  /* ---------- wiring ---------- */
+  $("v-sentence").addEventListener("click", function () { setView("sentence"); });
+  $("v-image").addEventListener("click", function () { setView("image"); });
+  $("infoBtn").addEventListener("click", function () {
+    S.details = !S.details; this.setAttribute("aria-expanded", String(S.details)); $("pdetails").hidden = !S.details;
+  });
+  $("shiftBtn").addEventListener("click", function () { S.shift = !S.shift; render(true); });
+  $("grid").addEventListener("change", function () {
+    var v = this.value.split("x"); S.cols = +v[0]; S.rows = +v[1];
+    S.iq = Math.min(S.cols * Math.floor(S.rows / 2) + Math.floor(S.cols / 2) - (S.cols > 3 ? 1 : 0), S.cols * S.rows - 1);
+    render(true);
+  });
+  $("upload").addEventListener("change", function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function (ev) {
+      var im = new Image();
+      im.onload = function () {
+        var W = 600, H = Math.round(600 * im.height / im.width);
+        if (H > 450) { W = Math.round(W * 450 / H); H = 450; }
+        S.img = im; S.W = W; S.H = H; paintCanvas(); render();
+      };
+      im.src = ev.target.result;
+    };
+    rd.readAsDataURL(f);
+  });
+  [["rot", "rot", "°", 1], ["skew", "skew", "°", 1], ["scale", "scale", "×", 100]].forEach(function (s) {
+    $(s[0]).addEventListener("input", function () {
+      var v = +this.value / s[3]; S.quad[s[1]] = v;
+      $(s[0] + "V").textContent = (s[3] === 100 ? v.toFixed(1) : v) + s[2];
+      render();
+    });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    if (k >= "1" && k <= "4") { setPanel(+k - 1); return; }
+    if (k === "s" || k === "S") { setView("sentence"); return; }
+    if (k === "i" || k === "I") { setView("image"); return; }
+    var n = N(), step = 0;
+    if (k === "ArrowLeft") step = -1; else if (k === "ArrowRight") step = 1;
+    else if (k === "ArrowUp") step = S.view === "image" ? -S.cols : -1;
+    else if (k === "ArrowDown") step = S.view === "image" ? S.cols : 1;
+    if (!step) return;
+    e.preventDefault();
+    var nq = Math.min(n - 1, Math.max(0, q() + step));
+    if (S.view === "sentence") S.sq = nq; else S.iq = nq;
+    render();
+  });
+
+  function setTheme(t) {
+    if (t === "system") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", t);
+    document.querySelectorAll("[data-theme-btn]").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.themeBtn === t));
+    });
+    try { localStorage.setItem("attn-theme", t); } catch (e) {}
+  }
+  document.querySelectorAll("[data-theme-btn]").forEach(function (b) {
+    b.addEventListener("click", function () { setTheme(b.dataset.themeBtn); });
+  });
+  var saved = null;
+  try { saved = localStorage.getItem("attn-theme"); } catch (e) {}
+  setTheme(saved === "light" || saved === "dark" ? saved : "system");
+
+  paintCanvas();
+  render(true);
+})();
+</script>
+
+</body></html>
